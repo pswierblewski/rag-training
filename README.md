@@ -13,12 +13,21 @@ A RAG (Retrieval-Augmented Generation) solution using FastAPI, PostgreSQL, Llama
 
 ## Prerequisites
 
+### Option 1: Docker (Recommended)
+- Docker (20.10+)
+- Docker Compose (v2.0+)
+- OpenAI API key (for LLM)
+- VoyageAI API key (for embeddings)
+
+### Option 2: Local Installation
 - Python 3.8+
 - PostgreSQL database (running locally)
 - OpenAI API key (for LLM)
 - VoyageAI API key (for embeddings)
 
-## Installation
+## Installation (Local Setup)
+
+> **Note**: For Docker deployment (recommended), skip to the [Docker Deployment](#docker-deployment-recommended-for-production) section.
 
 ### 1. Create Virtual Environment
 
@@ -65,6 +74,201 @@ The script will:
 - Create the `sentences` table
 - Insert 65 Polish sample sentences
 - Provide clear feedback on success/errors
+
+## Docker Deployment (Recommended for Production)
+
+The easiest way to run the RAG Training API is using Docker and Docker Compose. This handles all dependencies, database setup, and configuration automatically.
+
+### Prerequisites for Docker
+
+- Docker (20.10+)
+- Docker Compose (v2.0+)
+
+### Quick Start with Docker
+
+1. **Copy environment file**:
+   ```bash
+   cp .env.example .env
+   ```
+
+2. **Edit `.env` with your API keys**:
+   ```bash
+   # Required: Add your API keys
+   OPENAI_API_KEY=your_openai_api_key_here
+   VOYAGE_API_KEY=your_voyage_api_key_here
+   
+   # Optional: Customize other settings
+   LOG_LEVEL=INFO
+   WORKERS=4
+   ```
+
+3. **Build and start all services**:
+   ```bash
+   docker-compose up --build
+   ```
+   
+   This will:
+   - Build the FastAPI application image
+   - Start PostgreSQL database
+   - Automatically initialize the database with Polish sentences
+   - Start the API server on `http://localhost:8000`
+
+4. **Initialize FAISS vector store**:
+   ```bash
+   # In a new terminal
+   curl -X POST http://localhost:8000/init
+   ```
+
+5. **Test the chat endpoint**:
+   ```bash
+   curl -X POST http://localhost:8000/chat \
+     -H 'Content-Type: application/json' \
+     -d '{"question": "Gdzie jest Warszawa?"}'
+   ```
+
+### Docker Commands
+
+#### Development Mode
+
+```bash
+# Start services (with logs)
+docker-compose up
+
+# Start services in background
+docker-compose up -d
+
+# View logs
+docker-compose logs -f api          # API logs only
+docker-compose logs -f postgres     # Database logs only
+docker-compose logs -f              # All logs
+
+# Stop services
+docker-compose down
+
+# Stop and remove volumes (clean slate)
+docker-compose down -v
+
+# Rebuild after code changes
+docker-compose up --build
+
+# Execute commands in running container
+docker-compose exec api python init_db.py
+docker-compose exec api bash
+docker-compose exec postgres psql -U postgres -d rag_db_training
+```
+
+#### Production Mode
+
+For production deployment with optimized settings:
+
+```bash
+# Use production configuration
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+# View production logs
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml logs -f
+
+# Stop production services
+docker-compose -f docker-compose.yml -f docker-compose.prod.yml down
+```
+
+Production mode includes:
+- Resource limits (CPU & memory)
+- Optimized logging with rotation
+- Security hardening (read-only filesystem, dropped capabilities)
+- Multiple Uvicorn workers for better performance
+- Automatic restart on failure
+
+### Docker Volume Management
+
+The application uses persistent volumes for data:
+
+```bash
+# List volumes
+docker volume ls | grep rag
+
+# Inspect volume
+docker volume inspect rag_postgres_data
+docker volume inspect rag_faiss_index
+
+# Backup FAISS index
+docker run --rm -v rag_faiss_index:/data -v $(pwd):/backup ubuntu tar czf /backup/faiss_backup.tar.gz -C /data .
+
+# Restore FAISS index
+docker run --rm -v rag_faiss_index:/data -v $(pwd):/backup ubuntu tar xzf /backup/faiss_backup.tar.gz -C /data
+
+# Remove volumes (WARNING: deletes all data)
+docker-compose down -v
+```
+
+### Troubleshooting Docker
+
+#### Container won't start
+
+```bash
+# Check container logs
+docker-compose logs api
+
+# Check if PostgreSQL is ready
+docker-compose logs postgres
+```
+
+#### Database connection issues
+
+```bash
+# Verify PostgreSQL is running
+docker-compose ps
+
+# Check database health
+docker-compose exec postgres pg_isready -U postgres
+
+# Connect to database manually
+docker-compose exec postgres psql -U postgres -d rag_db_training -c "SELECT COUNT(*) FROM sentences;"
+```
+
+#### FAISS index issues
+
+```bash
+# Remove old index and reinitialize
+docker-compose down
+docker volume rm rag_faiss_index
+docker-compose up -d
+curl -X POST http://localhost:8000/init
+```
+
+#### Port already in use
+
+```bash
+# Change ports in docker-compose.yml or stop conflicting service
+# For API:
+ports:
+  - "8001:8000"  # Use port 8001 instead
+
+# For PostgreSQL:
+ports:
+  - "5433:5432"  # Use port 5433 instead
+```
+
+#### Out of disk space
+
+```bash
+# Clean up Docker resources
+docker system prune -a --volumes
+
+# Remove unused images
+docker image prune -a
+
+# Remove unused volumes
+docker volume prune
+```
+
+### Docker Image Details
+
+- **Base Image**: python:3.9-slim (~150MB)
+- **Final Image Size**: ~300MB (optimized with multi-stage build)
+- **Security**: Runs as non-root user (appuser, UID 1000)
+- **Health Checks**: Built-in health monitoring via `/health` endpoint
+- **Logging**: All logs to stdout/stderr (Docker-compatible)
 
 ## Usage
 

@@ -39,3 +39,8 @@ faiss_index/
 # OS
 .DS_Store
 Thumbs.db
+
+# Docker
+.env.docker.local
+faiss_backup.tar.gz
+backup.sql
